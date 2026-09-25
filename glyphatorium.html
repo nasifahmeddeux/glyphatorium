@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>glyphatorium</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js"></script>
+<style>
+:root{
+  --bg:#111314; --panel:#171b1c; --panel2:#192223; --line:#2c3737;
+  --ink:#daecee; --dim:#78878b; --aqua:#3ec6f0; --aqua-dim:#1c4d5c;
+  --danger:#d94f9f;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#e6f1f3; --panel:#f8feff; --panel2:#d8eaec; --line:#bdd3d8;
+    --ink:#121e1e; --dim:#5b7072; --aqua:#1fc3c9; --aqua-dim:#ade8f0;
+  }
+}
+:root[data-theme="dark"]{ --bg:#141311; }
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  -webkit-font-smoothing:antialiased;
+}
+header{
+  padding:18px clamp(14px,3vw,32px); border-bottom:1px solid var(--line);
+  display:flex; flex-wrap:wrap; align-items:center; gap:14px 22px;
+}
+h1{font-size:15px; letter-spacing:.02em; margin:0; font-weight:700;}
+h1 span{color:var(--aqua);}
+.field{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dim);}
+input[type=text],select{
+  background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+  font:inherit; font-size:12px; padding:6px 8px; border-radius:3px;
+}
+input[type=text]:focus,select:focus,button:focus-visible{outline:2px solid var(--aqua); outline-offset:1px;}
+button{
+  background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+  font:inherit; font-size:12px; padding:7px 12px; border-radius:3px; cursor:pointer;
+}
+button:hover{border-color:var(--aqua);}
+.primary{background:var(--aqua); color:#1a1305; border-color:var(--aqua); font-weight:700;}
+.primary:hover{filter:brightness(1.08);}
+main{display:flex; flex-wrap:wrap; gap:0;}
+.chars{
+  width:480px; max-width:100%; border-right:1px solid var(--line);
+  padding:14px; max-height:calc(100vh - 140px); overflow:auto;
+}
+.chars h2,.editor h2,.preview h2{
+  font-size:10px; color:var(--dim); letter-spacing:.08em; margin:0 0 10px;
+}
+.grid-of-chars{display:grid; grid-template-columns:repeat(auto-fill,minmax(30px,1fr)); gap:4px;}
+.cbtn{
+  position:relative; width:30px; height:30px; padding:0; font-size:13px;
+  display:flex; align-items:center; justify-content:center;
+}
+.cbtn.has-glyph{border-color:var(--aqua); color:var(--aqua);}
+.cbtn.active{background:var(--aqua); color:#1a1305; border-color:var(--aqua);}
+.addchar{display:flex; gap:6px; margin-top:10px;}
+.addchar input{width:100%;}
+.editor{flex:1; min-width:280px; padding:22px clamp(14px,3vw,32px); display:flex; flex-direction:column; align-items:center; gap:14px;}
+.glyph{font-size:34px; color:var(--aqua);}
+.toolrow{display:flex; gap:8px; flex-wrap:wrap; justify-content:center;}
+#gridCanvas{
+  touch-action:none; border:1px solid var(--line); background:var(--panel2);
+  max-width:100%; image-rendering:pixelated; cursor:crosshair;
+}
+.hint{font-size:11px; color:var(--dim); max-width:420px; text-align:center; line-height:1.5;}
+.preview{
+  border-top:1px solid var(--line); padding:16px clamp(14px,3vw,32px) 28px; width:100%;
+}
+#previewText{width:100%; max-width:520px;}
+#previewCanvas{display:block; margin-top:14px; width:100%; border:1px solid var(--line); background:var(--panel2); image-rendering:pixelated;}
+.status{font-size:11px; color:var(--dim); margin-top:6px;}
+.status b{color:var(--aqua);}
+</style>
+</head>
+<body>
+<header>
+  <h1>glyph<span>atorium</span></h1>
+  <label class="field">family name
+    <input type="text" id="fontName" value="my pixel font" style="width:150px;">
+  </label>
+  <label class="field">grid size
+    <select id="gridSize">
+      <option value="4">4 × 4</option>
+      <option value="8" selected>8 × 8</option>
+      <option value="16">16 × 16</option>
+      <option value="24">24 × 24</option>
+      <option value="32">32 × 32</option>
+    </select>
+  </label>
+  <div class="field" id="glyphCount">0 glyphs drawn</div>
+  <button class="primary" id="downloadBtn" style="margin-left:auto;">download .ttf</button>
+</header>
+
+<main>
+  <section class="chars">
+    <h2>characters</h2>
+    <div class="grid-of-chars" id="charGrid"></div>
+    <div class="addchar">
+      <input type="text" id="addCharInput" maxlength="1" placeholder="add char">
+      <button id="addCharBtn">+</button>
+    </div>
+  </section>
+
+  <section class="editor">
+    <div class="glyph" id="activeGlyphLabel">A</div>
+    
+    <canvas id="gridCanvas" width="512" height="512"></canvas>
+    <div class="hint">draw on the grid for each glyph. click or drag to paint. drag with the right mouse button to erase.</div>
+    <div class="toolrow">
+      <button id="clearBtn">clear</button>
+      <button id="shiftLeft">← shift</button>
+      <button id="shiftRight">→ shift</button>
+      <button id="shiftUp">↑ shift</button>
+      <button id="shiftDown">↓ shift</button>
+    </div>
+  </section>
+
+  <section class="preview">
+    <h2>preview</h2>
+    <input type="text" id="previewText" value="Hello, world!">
+    <canvas id="previewCanvas" width="900" height="120"></canvas>
+  </section>
+</main>
+
+<script>
+const DEFAULT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,'\";!?()-+=/\\".split("");
+let gridSize = 16;
+let activeChar = "A";
+let chars = [...DEFAULT_CHARS];
+// glyphs[char] = Uint8Array-like 2D array (row-major), or undefined if untouched
+let glyphs = {};
+
+const STORAGE_KEY = "pixelFontMakerState";
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const data = JSON.parse(raw);
+    if(data.gridSize) gridSize = data.gridSize;
+    if(data.chars) chars = data.chars;
+    if(data.glyphs) glyphs = data.glyphs;
+    if(data.fontName) document.getElementById("fontName").value = data.fontName;
+  }catch(e){ console.error("load failed", e); }
+}
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      gridSize, chars, glyphs, fontName: document.getElementById("fontName").value
+    }));
+  }catch(e){ console.error("save failed", e); }
+}
+
+function emptyGrid(){
+  return Array.from({length:gridSize}, () => new Array(gridSize).fill(0));
+}
+function getGlyph(ch){
+  if(!glyphs[ch]) glyphs[ch] = emptyGrid();
+  return glyphs[ch];
+}
+function hasInk(ch){
+  const g = glyphs[ch];
+  if(!g) return false;
+  return g.some(row => row.some(v => v));
+}
+
+const charGridEl = document.getElementById("charGrid");
+function renderCharPalette(){
+  charGridEl.innerHTML = "";
+  chars.forEach(ch => {
+    const b = document.createElement("button");
+    b.className = "cbtn" + (hasInk(ch) ? " has-glyph" : "") + (ch === activeChar ? " active" : "");
+    b.textContent = ch === " " ? "␣" : ch;
+    b.title = ch;
+    b.addEventListener("click", () => { activeChar = ch; refreshAll(); });
+    charGridEl.appendChild(b);
+  });
+}
+
+document.getElementById("addCharBtn").addEventListener("click", () => {
+  const inp = document.getElementById("addCharInput");
+  const ch = inp.value;
+  if(ch && !chars.includes(ch)){ chars.push(ch); activeChar = ch; refreshAll(); saveState(); }
+  inp.value = "";
+});
+
+const canvas = document.getElementById("gridCanvas");
+const ctx = canvas.getContext("2d");
+function drawGrid(){
+  const cell = canvas.width / gridSize;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const cs = getComputedStyle(document.documentElement);
+  ctx.fillStyle = cs.getPropertyValue("--panel2").trim() || "#232019";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  const g = getGlyph(activeChar);
+  ctx.fillStyle = cs.getPropertyValue("--aqua").trim() || "#f0a93e";
+  for(let r=0;r<gridSize;r++){
+    for(let c=0;c<gridSize;c++){
+      if(g[r][c]) ctx.fillRect(c*cell, r*cell, cell, cell);
+    }
+  }
+  ctx.strokeStyle = cs.getPropertyValue("--line").trim() || "#37332c";
+  ctx.lineWidth = 1;
+  for(let i=0;i<=gridSize;i++){
+    ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(canvas.width,i*cell); ctx.stroke();
+  }
+}
+
+let painting = false, paintValue = 1;
+function cellFromEvent(e){
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const cell = canvas.width / gridSize;
+  return { c: Math.min(gridSize-1, Math.max(0, Math.floor(x/cell))), r: Math.min(gridSize-1, Math.max(0, Math.floor(y/cell))) };
+}
+function paintAt(e){
+  const {r,c} = cellFromEvent(e);
+  const g = getGlyph(activeChar);
+  if(g[r][c] !== paintValue){ g[r][c] = paintValue; drawGrid(); }
+}
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+  painting = true;
+  paintValue = e.button === 2 ? 0 : 1;
+  const {r,c} = cellFromEvent(e);
+  paintValue = e.button === 2 ? 0 : (getGlyph(activeChar)[r][c] ? 0 : 1);
+  paintAt(e);
+});
+canvas.addEventListener("pointermove", e => { if(painting) paintAt(e); });
+window.addEventListener("pointerup", () => {
+  if(painting){ painting = false; renderCharPalette(); updateStatus(); saveState(); updatePreview(); }
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  glyphs[activeChar] = emptyGrid(); refreshAll(); saveState();
+});
+function shiftGlyph(dr,dc){
+  const g = getGlyph(activeChar);
+  const out = emptyGrid();
+  for(let r=0;r<gridSize;r++) for(let c=0;c<gridSize;c++){
+    const nr=r+dr, nc=c+dc;
+    if(nr>=0&&nr<gridSize&&nc>=0&&nc<gridSize) out[nr][nc]=g[r][c];
+  }
+  glyphs[activeChar]=out; refreshAll(); saveState();
+}
+document.getElementById("shiftLeft").addEventListener("click", ()=>shiftGlyph(0,-1));
+document.getElementById("shiftRight").addEventListener("click", ()=>shiftGlyph(0,1));
+document.getElementById("shiftUp").addEventListener("click", ()=>shiftGlyph(-1,0));
+document.getElementById("shiftDown").addEventListener("click", ()=>shiftGlyph(1,0));
+
+document.getElementById("gridSize").addEventListener("change", e => {
+  const newSize = parseInt(e.target.value,10);
+  // rescale existing glyphs (nearest neighbour) so drawings aren't lost
+  const scale = newSize / gridSize;
+  const newGlyphs = {};
+  Object.keys(glyphs).forEach(ch => {
+    const old = glyphs[ch];
+    const g = Array.from({length:newSize}, () => new Array(newSize).fill(0));
+    for(let r=0;r<newSize;r++) for(let c=0;c<newSize;c++){
+      const or_ = Math.min(gridSize-1, Math.floor(r/scale));
+      const oc = Math.min(gridSize-1, Math.floor(c/scale));
+      g[r][c] = old[or_][oc];
+    }
+    newGlyphs[ch] = g;
+  });
+  glyphs = newGlyphs;
+  gridSize = newSize;
+  refreshAll(); saveState();
+});
+
+function updateStatus(){
+  const n = chars.filter(hasInk).length;
+  document.getElementById("glyphCount").innerHTML = "<b style='color:var(--aqua)'>"+n+"</b> glyphs drawn";
+  document.getElementById("activeGlyphLabel").textContent = activeChar === " " ? "␣" : activeChar;
+}
+
+// ---- Preview rendering (draws typed text using the bitmap grids directly) ----
+const previewCanvas = document.getElementById("previewCanvas");
+const pctx = previewCanvas.getContext("2d");
+function updatePreview(){
+  const text = document.getElementById("previewText").value;
+  const px = 4; // display pixel size
+  const advance = gridSize + 2;
+  pctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
+  const cs = getComputedStyle(document.documentElement);
+  pctx.fillStyle = cs.getPropertyValue("--panel2").trim() || "#232019";
+  pctx.fillRect(0,0,previewCanvas.width,previewCanvas.height);
+  pctx.fillStyle = cs.getPropertyValue("--aqua").trim() || "#f0a93e";
+  let x = 8, y = 8;
+  for(const ch of text){
+    if(ch === " "){ x += advance*px; continue; }
+    const g = glyphs[ch];
+    if(x + gridSize*px > previewCanvas.width - 8){ x = 8; y += (gridSize+4)*px; }
+    if(g){
+      for(let r=0;r<gridSize;r++) for(let c=0;c<gridSize;c++){
+        if(g[r][c]) pctx.fillRect(x+c*px, y+r*px, px, px);
+      }
+    } else {
+      pctx.strokeStyle = cs.getPropertyValue("--line").trim() || "#37332c";
+      pctx.strokeRect(x, y, gridSize*px, gridSize*px);
+    }
+    x += advance*px;
+  }
+}
+document.getElementById("previewText").addEventListener("input", updatePreview);
+
+function refreshAll(){ renderCharPalette(); drawGrid(); updateStatus(); updatePreview(); }
+
+// ---- Font compilation ----
+function buildFont(){
+  const unitsPerEm = 1000, ascender = 800, descender = -200;
+  const pixelUnits = (ascender - descender) / gridSize;
+  const sidebearing = pixelUnits;
+  const advanceWidth = gridSize*pixelUnits + 2*sidebearing;
+
+  function glyphPath(grid){
+    const path = new opentype.Path();
+    for(let r=0;r<gridSize;r++){
+      for(let c=0;c<gridSize;c++){
+        if(!grid[r][c]) continue;
+        const xL = sidebearing + c*pixelUnits, xR = xL + pixelUnits;
+        const yT = ascender - r*pixelUnits, yB = yT - pixelUnits;
+        path.moveTo(xL, yB);
+        path.lineTo(xR, yB);
+        path.lineTo(xR, yT);
+        path.lineTo(xL, yT);
+        path.close();
+      }
+    }
+    return path;
+  }
+
+  const notdef = new opentype.Glyph({
+    name: ".notdef", unicode: 0, advanceWidth,
+    path: glyphPath(emptyGrid())
+  });
+  const glyphList = [notdef];
+  chars.forEach(ch => {
+    if(!hasInk(ch)) return;
+    glyphList.push(new opentype.Glyph({
+      name: "uni" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4,"0"),
+      unicode: ch.codePointAt(0),
+      advanceWidth,
+      path: glyphPath(glyphs[ch])
+    }));
+  });
+
+  if(glyphList.length < 2){
+    alert("Draw at least one character before downloading.");
+    return null;
+  }
+
+  const name = document.getElementById("fontName").value.trim() || "my pixel font";
+  return new opentype.Font({
+    familyName: name,
+    styleName: "Regular",
+    unitsPerEm, ascender, descender,
+    glyphs: glyphList
+  });
+}
+
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  try{
+    const font = buildFont();
+    if(!font) return;
+    const arrayBuffer = font.toArrayBuffer();
+    const blob = new Blob([arrayBuffer], { type: "font/ttf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const fname = (document.getElementById("fontName").value.trim() || "pixel-font").replace(/\s+/g,"-").toLowerCase();
+    a.href = url; a.download = fname + ".ttf";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    document.getElementById("statusLine").textContent = "Downloaded " + fname + ".ttf — install it locally to use it anywhere.";
+  }catch(err){
+    console.error(err);
+    document.getElementById("statusLine").textContent = "Something went wrong building the font: " + err.message;
+  }
+});
+
+loadState();
+document.getElementById("gridSize").value = String(gridSize);
+if(!chars.includes(activeChar)) activeChar = chars[0] || "A";
+refreshAll();
+</script>
+</body>
+</html>
